@@ -13,7 +13,7 @@ EDGES = {
 
 traci.start(["sumo", "-c", SUMO_CFG])
 
-with open("D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/intersection_244500423.csv", "w", newline="") as f:
+with open("D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/intersection_244500423_002.csv", "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow([
         "time", "dir",
@@ -37,10 +37,10 @@ with open("D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/intersection_24450
                 for e in edges
             )
 
-            speed = sum(
+            speed = round(sum(
                 traci.edge.getLastStepMeanSpeed(e)
                 for e in edges
-            ) / len(edges)
+            ) / len(edges)*3.6, 2)
 
 
             writer.writerow([t, d, queue, vehs, speed])
