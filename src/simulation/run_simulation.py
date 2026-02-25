@@ -4,13 +4,9 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 
+from src.constants.config import SUMO_CFG, LOG_PATH, TLS_ID, SUMO_BINARY
 
 matplotlib.use('TkAgg')
-SUMO_BINARY = "sumo-gui"
-# SUMO_BINARY = "sumo"
-SUMO_CFG = "D:/Users/Admin/PycharmProjects/UrbanFlow/data/routes/sumo.sumocfg"
-LOG_PATH = "D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/urbanflow_detailed_log.csv"
-TLS_ID = "244500423"
 
 EDGES = {
     "W": ["-622102031#6", "622102031#6"],
@@ -51,9 +47,9 @@ def get_buses_on_edge(edge_id):
 
 
 def run_simulation():
-    traci.start([SUMO_BINARY, "-c", SUMO_CFG])
+    traci.start([SUMO_BINARY, "-c", str(SUMO_CFG)])
 
-    with open(LOG_PATH, "w", newline="") as f:
+    with open(str(LOG_PATH), "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             "time", "dir", "queue", "vehicles", "mean_speed",
@@ -110,7 +106,7 @@ def run_simulation():
 
 
 def analyze_results():
-    df = pd.read_csv(LOG_PATH)
+    df = pd.read_csv(str(LOG_PATH))
 
     print("\nструктура дорог по направлениям")
     infra = df.groupby("dir")[["lane_count", "lane_configs"]].first()
@@ -133,5 +129,13 @@ def analyze_results():
 
 
 if __name__ == "__main__":
-    run_simulation()
-    analyze_results()
+    try:
+        run_simulation()
+        analyze_results()
+    except KeyboardInterrupt:
+        print("Прервано")
+    finally:
+        try:
+            traci.close()
+        except traci.exceptions.FatalTraCIError:
+            pass
