@@ -1,7 +1,15 @@
 import traci
 import csv
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
 
+
+matplotlib.use('TkAgg')
+SUMO_BINARY = "sumo-gui"
+# SUMO_BINARY = "sumo"
 SUMO_CFG = "D:/Users/Admin/PycharmProjects/UrbanFlow/data/routes/sumo.sumocfg"
+LOG_PATH = "D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/urbanflow_detailed_log.csv"
 TLS_ID = "244500423"
 
 EDGES = {
@@ -11,45 +19,119 @@ EDGES = {
     "S": ["-580760138#5", "580760138#5"],
 }
 
-traci.start(["sumo", "-c", SUMO_CFG])
 
-with open("D:/Users/Admin/PycharmProjects/UrbanFlow/data/logs/intersection_244500423_002.csv", "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow([
-        "time", "dir",
-        "queue", "vehicles",
-        "mean_speed"
-    ])
+def get_lane_info(edge_id):
+    """
+    's' = straight, 'r' = right, 'l' = left, 't' = turn
+    """
+    num_lanes = traci.edge.getLaneNumber(edge_id)
+    lane_data = []
+    for i in range(num_lanes):
+        lane_id = f"{edge_id}_{i}"
+        links = traci.lane.getLinks(lane_id)
+        directions = "".join(sorted(list(set(link[6] for link in links))))
+        lane_data.append(f"L{i}({directions})")
 
-    while traci.simulation.getMinExpectedNumber() > 0:
-        traci.simulationStep()
-        t = traci.simulation.getTime()
-
-        for d, edges in EDGES.items():
-
-            queue = sum(
-                traci.edge.getLastStepHaltingNumber(e)
-                for e in edges
-            )
-
-            vehs = sum(
-                traci.edge.getLastStepVehicleNumber(e)
-                for e in edges
-            )
-
-            speed = round(sum(
-                traci.edge.getLastStepMeanSpeed(e)
-                for e in edges
-            ) / len(edges)*3.6, 2)
-
-            writer.writerow([t, d, queue, vehs, speed])
-
-total_queue = sum(
-        traci.edge.getLastStepHaltingNumber(e)
-        for edges in EDGES.values()
-        for e in edges
-    )
-print(total_queue)
-traci.close()
+    return num_lanes, "|".join(lane_data)
 
 
+def get_buses_on_edge(edge_id):
+    """
+    Находит все автобусы на конкретном ребре и возвращает их количество и маршруты.
+    """
+    vehicles = traci.edge.getLastStepVehicleIDs(edge_id)
+    buses = [v for v in vehicles if "bus" in traci.vehicle.getTypeID(v).lower()]
+
+    bus_routes = []
+    for b in buses:
+        route = traci.vehicle.getRoute(b)
+        bus_routes.append(f"{b}:[{len(route)} edges]")
+
+    return len(buses), "; ".join(bus_routes)
+
+
+def run_simulation():
+    traci.start([SUMO_BINARY, "-c", SUMO_CFG])
+
+    with open(LOG_PATH, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "time", "dir", "queue", "vehicles", "mean_speed",
+            "lane_count", "lane_configs", "bus_count", "bus_routes"
+        ])
+
+        print("Симуляция UrbanFlow запущена...")
+
+        while traci.simulation.getMinExpectedNumber() > 0:
+            traci.simulationStep()
+            t = traci.simulation.getTime()
+
+            for direction, edges in EDGES.items():
+                q_total = 0
+                v_total = 0
+                s_sum = 0
+                b_total = 0
+
+                all_lane_configs = []
+                all_bus_routes = []
+                total_lanes = 0
+
+                for e in edges:
+                    q_total += traci.edge.getLastStepHaltingNumber(e)
+                    v_total += traci.edge.getLastStepVehicleNumber(e)
+                    s_sum += traci.edge.getLastStepMeanSpeed(e)
+
+                    n_lanes, l_cfg = get_lane_info(e)
+                    total_lanes += n_lanes
+                    all_lane_configs.append(l_cfg)
+
+                    b_count, b_rts = get_buses_on_edge(e)
+                    b_total += b_count
+                    if b_rts: all_bus_routes.append(b_rts)
+
+                avg_speed = round((s_sum / len(edges)) * 3.6, 2) if v_total > 0 else 0
+
+                writer.writerow([
+                    t, direction, q_total, v_total, avg_speed,
+                    total_lanes, " / ".join(all_lane_configs),
+                    b_total, " | ".join(all_bus_routes)
+                ])
+
+            if t % 30 == 0:
+                # current_phase =traci.trafficlight.getPhase(TLS_ID)
+                q_north = sum(traci.edge.getLastStepHaltingNumber(e) for e in EDGES["N"])
+                if q_north > 10:
+                    traci.trafficlight.setPhase(TLS_ID, 0)
+                # if q_north > 10 and current_phase !=0:
+                #     traci.trafficlight.setPhase(TLS_ID, 0)
+
+    traci.close()
+    print(f"Данные сохранены в {LOG_PATH}")
+
+
+def analyze_results():
+    df = pd.read_csv(LOG_PATH)
+
+    print("\nструктура дорог по направлениям")
+    infra = df.groupby("dir")[["lane_count", "lane_configs"]].first()
+    print(infra)
+
+    print("\nстатистика по направлениям")
+    stats = df.groupby("dir").agg({
+        "queue": "mean",
+        "bus_count": "sum",
+        "mean_speed": "mean"
+    })
+    print(stats)
+
+    pivot_q = df.pivot(index="time", columns="dir", values="queue")
+    pivot_q.plot(figsize=(10, 5))
+    plt.title("динамика очередей)")
+    plt.ylabel("количество стоящих машин")
+    plt.grid(True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    run_simulation()
+    analyze_results()
