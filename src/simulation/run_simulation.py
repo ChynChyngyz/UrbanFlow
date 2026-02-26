@@ -1,12 +1,9 @@
 import traci
 import csv
 import pandas as pd
-import matplotlib
 import matplotlib.pyplot as plt
 
 from src.constants.config import SUMO_CFG, LOG_PATH, TLS_ID, SUMO_BINARY
-
-matplotlib.use('TkAgg')
 
 EDGES = {
     "W": ["-622102031#6", "622102031#6"],
@@ -17,32 +14,21 @@ EDGES = {
 
 
 def get_lane_info(edge_id):
-    """
-    's' = straight, 'r' = right, 'l' = left, 't' = turn
-    """
     num_lanes = traci.edge.getLaneNumber(edge_id)
     lane_data = []
     for i in range(num_lanes):
         lane_id = f"{edge_id}_{i}"
         links = traci.lane.getLinks(lane_id)
-        directions = "".join(sorted(list(set(link[6] for link in links))))
+        directions = "".join(sorted(set(link[6] for link in links)))
         lane_data.append(f"L{i}({directions})")
-
     return num_lanes, "|".join(lane_data)
 
 
 def get_buses_on_edge(edge_id):
-    """
-    Находит все автобусы на конкретном ребре и возвращает их количество и маршруты.
-    """
     vehicles = traci.edge.getLastStepVehicleIDs(edge_id)
-    buses = [v for v in vehicles if "bus" in traci.vehicle.getTypeID(v).lower()]
-
-    bus_routes = []
-    for b in buses:
-        route = traci.vehicle.getRoute(b)
-        bus_routes.append(f"{b}:[{len(route)} edges]")
-
+    buses = [v for v in vehicles if traci.vehicle.getVehicleClass(v) == "bus"]
+    for v in vehicles: print(f"ID: {v}, Class: {traci.vehicle.getVehicleClass(v)}")
+    bus_routes = [f"{b}:[{len(traci.vehicle.getRoute(b))} edges]" for b in buses]
     return len(buses), "; ".join(bus_routes)
 
 
@@ -93,21 +79,12 @@ def run_simulation():
                     b_total, " | ".join(all_bus_routes)
                 ])
 
-            if t % 30 == 0:
-                # current_phase =traci.trafficlight.getPhase(TLS_ID)
-                q_north = sum(traci.edge.getLastStepHaltingNumber(e) for e in EDGES["N"])
-                if q_north > 10:
-                    traci.trafficlight.setPhase(TLS_ID, 0)
-                # if q_north > 10 and current_phase !=0:
-                #     traci.trafficlight.setPhase(TLS_ID, 0)
-
     traci.close()
     print(f"Данные сохранены в {LOG_PATH}")
 
 
 def analyze_results():
     df = pd.read_csv(str(LOG_PATH))
-
     print("\nструктура дорог по направлениям")
     infra = df.groupby("dir")[["lane_count", "lane_configs"]].first()
     print(infra)
@@ -122,8 +99,8 @@ def analyze_results():
 
     pivot_q = df.pivot(index="time", columns="dir", values="queue")
     pivot_q.plot(figsize=(10, 5))
-    plt.title("динамика очередей)")
-    plt.ylabel("количество стоящих машин")
+    plt.title("Динамика очередей")
+    plt.ylabel("Количество стоящих машин")
     plt.grid(True)
     plt.show()
 
@@ -134,8 +111,6 @@ if __name__ == "__main__":
         analyze_results()
     except KeyboardInterrupt:
         print("Прервано")
-    finally:
-        try:
-            traci.close()
-        except traci.exceptions.FatalTraCIError:
-            pass
+        traci.close()
+    except traci.exceptions.FatalTraCIError:
+        traci.close()
